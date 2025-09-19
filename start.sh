@@ -61,8 +61,12 @@ else
     echo "--- Auto-start disabled ---"
 fi
 
+# --- Mapping port 8000 to host ---
+PORT_MAPPING="-p 8000:8000"
+
 echo "--- Starting container 'amadeus_control' in privileged mode... ---"
 echo "--- Mapping host device '$HOST_DEVICE' to '/dev/rrc' in container... ---"
+echo "--- Mapping host port 8000 to container port 8000... ---"
 
 # Using --privileged=true option to solve all potential device permission issues
-docker run $DOCKER_RUN_OPTIONS --device=$HOST_DEVICE:/dev/rrc --privileged=true $RESTART_POLICY amadeus:minimal
+docker run $DOCKER_RUN_OPTIONS $PORT_MAPPING --device=$HOST_DEVICE:/dev/rrc --privileged=true $RESTART_POLICY amadeus:minimal
