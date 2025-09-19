@@ -5,6 +5,10 @@
 # This allows you to keep changes made inside the container, such as installing new software or modifying code, for the next startup.
 ENABLE_PERSISTENCE="false"
 
+# Change this to "true" to enable auto-start on system boot.
+# When enabled, the container will automatically restart with the system.
+ENABLE_AUTOSTART="true"
+
 # Please modify this to the correct device name you confirmed with dmesg
 HOST_DEVICE="/dev/ttyAMA0"
 
@@ -21,22 +25,44 @@ set -e
 echo "--- Building Docker image... ---"
 docker build -t amadeus:minimal .
 
-# Choose different docker run options based on whether persistence is enabled
+# Kill and remove old container if it exists (to avoid name conflict)
+if docker ps -a --format '{{.Names}}' | grep -Eq "^amadeus_control\$"; then
+    echo "--- Removing old container 'amadeus_control' ---"
+    docker rm -f amadeus_control
+fi
+
+# Choose different docker run options based on persistence and autostart
 DOCKER_RUN_OPTIONS=""
+
 if [ "$ENABLE_PERSISTENCE" = "true" ]; then
     echo "--- Persistence enabled ---"
-    # -v creates a data volume named amadeus_ws_data and mounts it to /ros2_ws in the container
-    # This will save the build/, install/, log/ folders
-    # Omit the --rm option so the container is not deleted after stopping
-    DOCKER_RUN_OPTIONS="-it -v amadeus_ws_data:/ros2_ws --name amadeus_control"
+    DOCKER_RUN_OPTIONS="-d -v amadeus_ws_data:/ros2_ws --name amadeus_control"
 else
-    echo "--- Persistence disabled (container will be automatically deleted after stopping) ---"
-    # --rm option will automatically delete the container when it stops
-    DOCKER_RUN_OPTIONS="--rm -it --name amadeus_control"
+    echo "--- Persistence disabled ---"
+    if [ "$ENABLE_AUTOSTART" = "true" ]; then
+        # ⚠️ auto-start requires container to be kept, so cannot use --rm
+        DOCKER_RUN_OPTIONS="-d --name amadeus_control"
+        echo "--- Container will NOT be auto-removed, since auto-start is enabled ---"
+    else
+        # safe to auto-remove when not autostart
+        DOCKER_RUN_OPTIONS="-d --rm --name amadeus_control"
+        echo "--- Container will be automatically deleted after stopping ---"
+    fi
+fi
+
+
+# Choose restart policy based on ENABLE_AUTOSTART
+RESTART_POLICY=""
+if [ "$ENABLE_AUTOSTART" = "true" ]; then
+    RESTART_POLICY="--restart=always"
+    echo "--- Auto-start enabled ---"
+else
+    RESTART_POLICY="--restart=no"
+    echo "--- Auto-start disabled ---"
 fi
 
 echo "--- Starting container 'amadeus_control' in privileged mode... ---"
 echo "--- Mapping host device '$HOST_DEVICE' to '/dev/rrc' in container... ---"
 
 # Using --privileged=true option to solve all potential device permission issues
-docker run $DOCKER_RUN_OPTIONS --device=$HOST_DEVICE:/dev/rrc --privileged=true amadeus:minimal
+docker run $DOCKER_RUN_OPTIONS --device=$HOST_DEVICE:/dev/rrc --privileged=true $RESTART_POLICY amadeus:minimal
