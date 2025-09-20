@@ -59,32 +59,35 @@
 这是一个简单的 Python 测试脚本，可以用来验证服务是否正常工作。
 ```Python
 import asyncio
-import websockets
 import json
 
-async def control_robot():
-    # 替换为你的树莓派IP地址
-    uri = "ws://192.168.1.100:8000/ws"
-    
-    async with websockets.connect(uri) as websocket:
-        print("--- 已连接到机器人 ---")
+import websockets
 
-        # 示例1: 前进1秒
-        print("向前移动...")
-        await websocket.send(json.dumps({"action": "move", "linear_x": 0.3}))
-        await asyncio.sleep(1)
+URI = "ws://192.168.31.201:8000/ws"  # 修改为你的机器人IP地址
 
-        # 示例2: 停止
-        print("停止...")
-        await websocket.send(json.dumps({"action": "stop"}))
-        await asyncio.sleep(1)
 
-        # 示例3: 鸣笛
-        print("鸣笛...")
-        await websocket.send(json.dumps({"action": "beep"}))
-        await asyncio.sleep(1)
+async def main():
+    async with websockets.connect(URI) as ws:
+        print("--- connected ---")
+
+        # 1) 测试一次性蜂鸣
+        await ws.send(
+            json.dumps({"action": "beep", "frequency": 1000, "duration": 0.3})
+        )
+        await asyncio.sleep(0.5)
+
+        # 3) 简单移动然后停止
+        await ws.send(json.dumps({"action": "move", "linear_x": 0.3}))
+        await asyncio.sleep(0.5)
+        await ws.send(json.dumps({"action": "move", "linear_x": -0.3}))
+        await asyncio.sleep(0.5)
+        await ws.send(json.dumps({"action": "stop"}))
+
+        print("--- done ---")
+
 
 if __name__ == "__main__":
-    asyncio.run(control_robot())
+    asyncio.run(main())
+
 ```
 将以上代码保存为 `test_client.py`，修改IP地址后运行 `python test_client.py` 即可看到效果。
