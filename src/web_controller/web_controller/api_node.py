@@ -17,6 +17,9 @@ class RosBridgeNode(Node):
         self.buzzer_publisher_ = self.create_publisher(BuzzerState, '/ros_robot_controller/set_buzzer', 10)
         self.get_logger().info('Web API Controller Node has been started.')
 
+        # 用来保存一次性定时器，避免被 GC
+        self._beep_timers = set()
+
     def publish_twist(self, linear_x=0.0, linear_y=0.0, angular_z=0.0):
         msg = Twist()
         msg.linear.x = float(linear_x)
@@ -29,15 +32,38 @@ class RosBridgeNode(Node):
         self.publish_twist(0.0, 0.0, 0.0)
         self.get_logger().info('Sent stop command.')
 
-    # --- 新增3: 一个发送蜂鸣器指令的新方法 ---
     def beep(self, freq=2000, duration=0.2):
+        """开始蜂鸣（一次），并在 duration 后兜底停止。"""
         msg = BuzzerState()
-        msg.freq = freq
-        msg.on_time = duration
-        msg.off_time = 0.0  # 响一次即可
+        msg.freq = int(freq)
+        msg.on_time = float(duration)
+        msg.off_time = 0.0
         msg.repeat = 1
         self.buzzer_publisher_.publish(msg)
         self.get_logger().info(f'Publishing Buzzer: freq={freq}, duration={duration}')
+
+        # —— 兜底：duration 后强制停止（一次性定时器）——
+        def _stop_once():
+            try:
+                self.stop_beep()
+            finally:
+                # 取消并移除这个定时器
+                timer.cancel()
+                self._beep_timers.discard(timer)
+
+        # create_timer 是周期性定时器，这里我们用一次回调后立即 cancel
+        timer = self.create_timer(float(duration), _stop_once)
+        self._beep_timers.add(timer)
+
+    def stop_beep(self):
+        """显式停止蜂鸣（幂等）。不同驱动可能要求 freq=0 或 repeat=0。"""
+        msg = BuzzerState()
+        msg.freq = 0
+        msg.on_time = 0.0
+        msg.off_time = 0.0
+        msg.repeat = 0
+        self.buzzer_publisher_.publish(msg)
+        self.get_logger().info('Publishing Buzzer STOP')
 
 class WebApiServer:
     def __init__(self, ros_node):
@@ -47,27 +73,40 @@ class WebApiServer:
         @self.app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket):
             await websocket.accept()
-            self.ros_node.get_logger().info(f"WebSocket client connected.")
+            self.ros_node.get_logger().info("WebSocket client connected.")
             try:
                 while True:
                     data = await websocket.receive_text()
                     cmd = json.loads(data)
-                    
-                    if cmd.get("action") == "move":
+
+                    action = cmd.get("action")
+                    if action == "move":
                         self.ros_node.publish_twist(
                             linear_x=cmd.get("linear_x", 0.0),
                             linear_y=cmd.get("linear_y", 0.0),
                             angular_z=cmd.get("angular_z", 0.0)
                         )
-                    elif cmd.get("action") == "stop":
+
+                    elif action == "stop":
+                        # 只停底盘
                         self.ros_node.stop_robot()
-                    elif cmd.get("action") == "beep":
-                        self.ros_node.beep()
+
+                    elif action == "beep":
+                        # 支持客户端传入 frequency/duration
+                        freq = cmd.get("frequency", 2000)
+                        duration = cmd.get("duration", 0.2)
+                        self.ros_node.beep(freq=freq, duration=duration)
+
+                    elif action in ("stop_beep", "buzzer_off"):
+                        # 显式停蜂鸣（客户端保险调用）
+                        self.ros_node.stop_beep()
 
             except WebSocketDisconnect:
-                self.ros_node.get_logger().warn(f"WebSocket client disconnected.")
+                self.ros_node.get_logger().warn("WebSocket client disconnected.")
             finally:
+                # 兜底：断开时同时停车+停蜂鸣
                 self.ros_node.stop_robot()
+                self.ros_node.stop_beep()
 
     def run_server(self):
         uvicorn.run(self.app, host="0.0.0.0", port=8000)
