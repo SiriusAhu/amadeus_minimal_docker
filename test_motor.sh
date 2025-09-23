@@ -1,36 +1,25 @@
 #!/bin/bash
 
-echo "--- Running final hardware MOTOR test via SDK... ---"
+echo "--- [Correct Way] Testing ROS 2 Mecanum Logic via /cmd_vel topic ---"
+echo "This script will send a command to move FORWARD for 1 second, then STOP."
+echo "This WILL execute the code in mecanum.py."
 
-# This command will execute a small piece of Python code inside the container
-# It will directly command the motors to rotate at 50% duty cycle for 1 second, then stop
+# 在运行中的容器内部执行ROS2命令
 docker exec -it amadeus_control bash -c "
-source /ros2_ws/install/setup.bash && \
-python3 -c \"
-import time
-from ros_robot_controller.ros_robot_controller_sdk import Board
-print('--- Python script started inside container ---')
-try:
-    print('Initializing board...')
-    board = Board()
-    board.enable_reception()
-    print('Board initialized.')
-    
-    print('Sending MOTOR command (all motors at 50 duty)...')
-    # Directly call the SDK function to make all motors rotate forward
-    board.set_motor_duty([[1, 50], [2, 50], [3, 50], [4, 50]])
-    
-    # Keep rotating for 1 second
-    time.sleep(1)
-    
-    print('Sending STOP command...')
-    # Stop all motors
-    board.set_motor_duty([[1, 0], [2, 0], [3, 0], [4, 0]])
-    
-    print('--- Test finished ---')
+  # 加载ROS2环境
+  source /ros2_ws/install/setup.bash
 
-except Exception as e:
-    print('!!! TEST FAILED !!!')
-    print(f'An error occurred: {e}')
-\"
+  # 指令1: 发布一个前进指令到 /cmd_vel 话题
+  echo '>>> Sending MOVE FORWARD command (linear.x = 0.3)...'
+  ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.3, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}'
+
+  # 等待1秒，让机器人运动
+  echo '--- Moving for 1 second... ---'
+  sleep 1
+
+  # 指令2: 发布一个停止指令
+  echo '>>> Sending STOP command...'
+  ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}'
+
+  echo '--- Test finished ---'
 "
