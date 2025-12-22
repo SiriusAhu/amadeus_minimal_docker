@@ -198,8 +198,9 @@ async def root():
                         statusEl.textContent = '❌ ' + data.message;
                     }}
                 }} catch (e) {{
-                    statusEl.className = 'status error';
-                    statusEl.textContent = '❌ 连接失败';
+                    // 网络切换时可能会超时，这其实可能是成功的
+                    statusEl.className = 'status';
+                    statusEl.innerHTML = `⏳ 网络切换中...<br><br>如果小车已成功连接新 WiFi：<br>1. 请切换到您的 WiFi 网络<br>2. 使用 App 扫描或手动输入小车 IP<br><br>如果连接失败，请刷新页面重试`;
                 }}
             }}
             

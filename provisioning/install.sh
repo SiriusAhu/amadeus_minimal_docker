@@ -53,7 +53,7 @@ channel=6
 
 [wifi-security]
 key-mgmt=wpa-psk
-psk=amadeus2024
+psk=amadeus
 
 [ipv4]
 method=shared
@@ -147,7 +147,7 @@ echo "  安装完成!"
 echo "======================================"
 echo ""
 echo "AP SSID: ${AP_SSID}"
-echo "AP 密码: amadeus2024"
+echo "AP 密码: amadeus"
 echo "配网地址: http://192.168.4.1"
 echo ""
 echo "使用方法:"
