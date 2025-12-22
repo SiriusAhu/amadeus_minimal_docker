@@ -16,10 +16,14 @@ fi
 
 # 安装依赖
 echo "[1/5] 安装 Python 依赖..."
-pip3 install fastapi uvicorn pydantic || {
-    echo "尝试使用 pip..."
-    pip install fastapi uvicorn pydantic
+# 创建虚拟环境
+VENV_DIR="/opt/amadeus/venv"
+python3 -m venv $VENV_DIR || {
+    echo "创建虚拟环境失败，尝试安装 python3-venv..."
+    apt-get update && apt-get install -y python3-venv python3-full
+    python3 -m venv $VENV_DIR
 }
+$VENV_DIR/bin/pip install fastapi uvicorn pydantic
 
 # 创建目录
 echo "[2/5] 创建目录..."
@@ -108,7 +112,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/amadeus
-ExecStart=/usr/bin/python3 /opt/amadeus/provisioning_server.py
+ExecStart=/opt/amadeus/venv/bin/python /opt/amadeus/provisioning_server.py
 Restart=on-failure
 RestartSec=5
 
