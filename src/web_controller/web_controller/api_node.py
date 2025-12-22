@@ -80,6 +80,15 @@ class WebApiServer:
                     cmd = json.loads(data)
 
                     action = cmd.get("action")
+                    
+                    # 心跳响应
+                    if action == "ping":
+                        await websocket.send_json({
+                            "action": "pong",
+                            "timestamp": cmd.get("timestamp", 0)
+                        })
+                        continue
+
                     if action == "move":
                         self.ros_node.publish_twist(
                             linear_x=cmd.get("linear_x", 0.0),
@@ -100,6 +109,14 @@ class WebApiServer:
                     elif action in ("stop_beep", "buzzer_off"):
                         # 显式停蜂鸣（客户端保险调用）
                         self.ros_node.stop_beep()
+                    
+                    elif action == "get_status":
+                        # 返回车辆状态
+                        await websocket.send_json({
+                            "action": "status",
+                            "connected": True,
+                            "timestamp": cmd.get("timestamp", 0)
+                        })
 
             except WebSocketDisconnect:
                 self.ros_node.get_logger().warn("WebSocket client disconnected.")
