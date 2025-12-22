@@ -4,10 +4,17 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import BuzzerState
+from std_msgs.msg import UInt16
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import uvicorn
 import threading
 import json
+import time
+
+# 电池电压范围 (mV) - 2S 锂电池
+BATTERY_MIN_MV = 6400   # 3.2V x 2 = 6.4V (空电)
+BATTERY_MAX_MV = 8400   # 4.2V x 2 = 8.4V (满电)
+BATTERY_LOW_MV = 6800   # 低电量警告阈值
 
 # 定义ROS 2节点
 class RosBridgeNode(Node):
@@ -15,10 +22,57 @@ class RosBridgeNode(Node):
         super().__init__('web_api_controller')
         self.twist_publisher_ = self.create_publisher(Twist, '/cmd_vel', 10)
         self.buzzer_publisher_ = self.create_publisher(BuzzerState, '/ros_robot_controller/set_buzzer', 10)
+        
+        # 订阅电池状态
+        self.battery_voltage_mv = 0
+        self.battery_last_update = 0
+        self.battery_subscription = self.create_subscription(
+            UInt16,
+            '/ros_robot_controller/battery',
+            self._battery_callback,
+            10
+        )
+        
         self.get_logger().info('Web API Controller Node has been started.')
 
         # 用来保存一次性定时器，避免被 GC
         self._beep_timers = set()
+    
+    def _battery_callback(self, msg: UInt16):
+        """电池电压回调"""
+        self.battery_voltage_mv = msg.data
+        self.battery_last_update = time.time()
+    
+    def get_battery_info(self) -> dict:
+        """获取电池信息"""
+        voltage_mv = self.battery_voltage_mv
+        voltage_v = voltage_mv / 1000.0
+        
+        # 计算百分比
+        if voltage_mv <= BATTERY_MIN_MV:
+            percentage = 0
+        elif voltage_mv >= BATTERY_MAX_MV:
+            percentage = 100
+        else:
+            percentage = int((voltage_mv - BATTERY_MIN_MV) / (BATTERY_MAX_MV - BATTERY_MIN_MV) * 100)
+        
+        # 判断状态
+        if voltage_mv == 0:
+            status = "unknown"
+        elif voltage_mv < BATTERY_LOW_MV:
+            status = "low"
+        elif voltage_mv > BATTERY_MAX_MV - 200:
+            status = "full"
+        else:
+            status = "normal"
+        
+        return {
+            "voltage_mv": voltage_mv,
+            "voltage_v": round(voltage_v, 2),
+            "percentage": percentage,
+            "status": status,
+            "last_update": self.battery_last_update
+        }
 
     def publish_twist(self, linear_x=0.0, linear_y=0.0, angular_z=0.0):
         msg = Twist()
@@ -111,10 +165,21 @@ class WebApiServer:
                         self.ros_node.stop_beep()
                     
                     elif action == "get_status":
-                        # 返回车辆状态
+                        # 返回车辆状态（包含电池信息）
+                        battery_info = self.ros_node.get_battery_info()
                         await websocket.send_json({
                             "action": "status",
                             "connected": True,
+                            "battery": battery_info,
+                            "timestamp": cmd.get("timestamp", 0)
+                        })
+                    
+                    elif action == "get_battery":
+                        # 单独获取电池状态
+                        battery_info = self.ros_node.get_battery_info()
+                        await websocket.send_json({
+                            "action": "battery",
+                            **battery_info,
                             "timestamp": cmd.get("timestamp", 0)
                         })
 
