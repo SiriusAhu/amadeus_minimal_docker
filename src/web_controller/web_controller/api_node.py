@@ -178,11 +178,12 @@ class PerformanceExecutor:
         self.ros_node = ros_node
         self._running = False
         self._cancel_event = asyncio.Event()
+        self._lock = asyncio.Lock()  # 防止竞争条件
     
     def cancel(self):
         """取消当前表演"""
         self._cancel_event.set()
-        self._running = False
+        # 不直接设置 _running = False，让 execute() 的 finally 块处理
         # 立即停止机器人
         self.ros_node.stop_robot()
         self.ros_node.stop_beep()
@@ -190,6 +191,11 @@ class PerformanceExecutor:
     def is_cancelled(self) -> bool:
         """检查是否被取消"""
         return self._cancel_event.is_set()
+    
+    def force_reset(self):
+        """强制重置状态（仅在确定没有执行时调用）"""
+        self._running = False
+        self._cancel_event.clear()
     
     async def _sleep(self, duration: float) -> bool:
         """可取消的 sleep，返回 False 表示被取消"""
@@ -207,11 +213,16 @@ class PerformanceExecutor:
         if action not in PERFORMANCE_ACTIONS:
             return {"success": False, "error": f"未知动作: {action}"}
         
+        # 使用锁防止竞争条件
         if self._running:
             return {"success": False, "error": "另一个表演正在进行中"}
         
-        self._running = True
-        self._cancel_event.clear()
+        async with self._lock:
+            if self._running:
+                return {"success": False, "error": "另一个表演正在进行中"}
+            
+            self._running = True
+            self._cancel_event.clear()
         
         try:
             # 获取动作定义并合并默认参数
@@ -224,12 +235,14 @@ class PerformanceExecutor:
             method = getattr(self, f"_do_{action}", None)
             if method:
                 await method(full_params)
+                if self.is_cancelled():
+                    return {"success": False, "error": "动作被取消", "cancelled": True}
                 self.ros_node.stop_robot()  # 确保动作结束后停止
                 return {"success": True, "action": action, "name": action_def["name"]}
             else:
                 return {"success": False, "error": f"动作 {action} 未实现"}
         except asyncio.CancelledError:
-            return {"success": False, "error": "动作被取消"}
+            return {"success": False, "error": "动作被取消", "cancelled": True}
         finally:
             self.ros_node.stop_robot()
             self._running = False
@@ -428,6 +441,12 @@ class WebApiServer:
                         # 停底盘 + 取消表演
                         self.performance_executor.cancel()
                         self.ros_node.stop_robot()
+                        # 发送确认响应
+                        await websocket.send_json({
+                            "action": "stop_ack",
+                            "cancelled": self.performance_executor.is_cancelled(),
+                            "timestamp": cmd.get("timestamp", 0)
+                        })
 
                     elif action == "beep":
                         # 支持客户端传入 frequency/duration
