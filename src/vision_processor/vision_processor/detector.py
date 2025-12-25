@@ -272,3 +272,4 @@ class ObjectTracker:
         # 优先选择跟踪时间最长的
         return max(candidates, key=lambda obj: obj.frames_tracked)
 
+

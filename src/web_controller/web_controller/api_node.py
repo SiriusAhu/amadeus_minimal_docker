@@ -548,7 +548,10 @@ class WebApiServer:
                         result = await self.performance_executor.execute(perform_action, params)
                         await websocket.send_json({
                             "action": "perform_result",
-                            **result,
+                            "perform_action": result.get("action", perform_action),
+                            "success": result.get("success", False),
+                            "name": result.get("name", ""),
+                            "error": result.get("error", ""),
                             "timestamp": cmd.get("timestamp", 0)
                         })
                     

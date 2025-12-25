@@ -260,3 +260,4 @@ class PersonFollower:
             "tracked_count": len(self.tracker.tracked_objects),
         }
 
+
