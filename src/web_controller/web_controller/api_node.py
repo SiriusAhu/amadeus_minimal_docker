@@ -145,33 +145,6 @@ PERFORMANCE_ACTIONS = {
             "speed": {"type": "int", "default": 60, "min": 20, "max": 100, "desc": "速度百分比"}
         }
     },
-    "nod": {
-        "name": "点头",
-        "name_en": "Nod",
-        "description": "前后点头表示肯定",
-        "params": {
-            "times": {"type": "int", "default": 3, "min": 1, "max": 10, "desc": "点头次数"},
-            "speed": {"type": "int", "default": 50, "min": 20, "max": 100, "desc": "速度百分比"}
-        }
-    },
-    "dance": {
-        "name": "跳舞",
-        "name_en": "Dance",
-        "description": "欢快的舞蹈动作组合",
-        "params": {
-            "duration": {"type": "float", "default": 5.0, "min": 2.0, "max": 30.0, "desc": "持续时间(秒)"},
-            "style": {"type": "str", "default": "happy", "options": ["happy", "excited", "calm"], "desc": "舞蹈风格"}
-        }
-    },
-    "wiggle": {
-        "name": "扭动",
-        "name_en": "Wiggle",
-        "description": "左右扭动身体",
-        "params": {
-            "times": {"type": "int", "default": 4, "min": 1, "max": 10, "desc": "扭动次数"},
-            "speed": {"type": "int", "default": 60, "min": 20, "max": 100, "desc": "速度百分比"}
-        }
-    },
     "figure8": {
         "name": "画8字",
         "name_en": "Figure 8",
@@ -192,7 +165,7 @@ PERFORMANCE_ACTIONS = {
     "greet": {
         "name": "打招呼",
         "name_en": "Greet",
-        "description": "前进后退+鸣笛打招呼",
+        "description": "鸣笛打招呼",
         "params": {}
     }
 }
@@ -307,113 +280,6 @@ class PerformanceExecutor:
             self.ros_node.stop_robot()
             if not await self._sleep(0.15):
                 break
-        
-        self.ros_node.stop_robot()
-    
-    async def _do_nod(self, params: dict):
-        """点头 - 前后移动（需要较大速度才能克服惯性）"""
-        times = int(params.get("times", 3))
-        speed = float(params.get("speed", 50)) / 100.0
-        
-        # 使用较大的线速度确保能动
-        linear_speed = 0.25 * max(0.5, speed)  # 最低50%速度，基础0.25m/s
-        nod_duration = 0.4  # 每个方向0.4秒
-        
-        for i in range(times):
-            if self.is_cancelled():
-                break
-            # 前进
-            self.ros_node.publish_twist(linear_speed, 0, 0)
-            if not await self._sleep(nod_duration):
-                break
-            # 后退
-            self.ros_node.publish_twist(-linear_speed, 0, 0)
-            if not await self._sleep(nod_duration):
-                break
-            # 短暂停顿
-            self.ros_node.stop_robot()
-            if not await self._sleep(0.2):
-                break
-        
-        self.ros_node.stop_robot()
-    
-    async def _do_wiggle(self, params: dict):
-        """扭动 - 左右平移"""
-        times = int(params.get("times", 4))
-        speed = float(params.get("speed", 60)) / 100.0
-        
-        # 使用较大的线速度
-        linear_speed = 0.2 * max(0.5, speed)  # 最低50%速度
-        wiggle_duration = 0.35  # 每个方向0.35秒
-        
-        for i in range(times):
-            if self.is_cancelled():
-                break
-            # 左平移
-            self.ros_node.publish_twist(0, linear_speed, 0)
-            if not await self._sleep(wiggle_duration):
-                break
-            # 右平移
-            self.ros_node.publish_twist(0, -linear_speed, 0)
-            if not await self._sleep(wiggle_duration * 2):
-                break
-            # 回正
-            self.ros_node.publish_twist(0, linear_speed, 0)
-            if not await self._sleep(wiggle_duration):
-                break
-            # 短暂停顿
-            self.ros_node.stop_robot()
-            if not await self._sleep(0.15):
-                break
-        
-        self.ros_node.stop_robot()
-    
-    async def _do_dance(self, params: dict):
-        """跳舞 - 组合动作序列（限制时长）"""
-        duration = min(float(params.get("duration", 5.0)), 10.0)  # 最长10秒
-        style = params.get("style", "happy")
-        
-        start_time = time.time()
-        
-        # 根据风格设置参数
-        if style == "excited":
-            speed_mult = 1.2
-            move_duration = 0.4
-        elif style == "calm":
-            speed_mult = 0.7
-            move_duration = 0.7
-        else:  # happy
-            speed_mult = 1.0
-            move_duration = 0.5
-        
-        # 舞蹈动作序列 (线速度x, 线速度y, 角速度z)
-        moves = [
-            (0, 0, 1.5),     # 左转
-            (0, 0, -1.5),    # 右转
-            (0.15, 0, 0),    # 前进
-            (-0.15, 0, 0),   # 后退
-            (0, 0.12, 0),    # 左平移
-            (0, -0.12, 0),   # 右平移
-            (0.1, 0, 1.0),   # 前进+左转
-            (0.1, 0, -1.0),  # 前进+右转
-        ]
-        
-        move_idx = 0
-        while time.time() - start_time < duration:
-            if self.is_cancelled():
-                break
-            
-            move = moves[move_idx % len(moves)]
-            self.ros_node.publish_twist(
-                move[0] * speed_mult,
-                move[1] * speed_mult,
-                move[2] * speed_mult
-            )
-            
-            if not await self._sleep(move_duration):
-                break
-            
-            move_idx += 1
         
         self.ros_node.stop_robot()
     
