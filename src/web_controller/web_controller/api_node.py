@@ -210,11 +210,21 @@ class PerformanceExecutor:
         """取消当前表演"""
         self._cancel_event.set()
         self._running = False
+        # 立即停止机器人
+        self.ros_node.stop_robot()
+        self.ros_node.stop_beep()
+    
+    def is_cancelled(self) -> bool:
+        """检查是否被取消"""
+        return self._cancel_event.is_set()
     
     async def _sleep(self, duration: float) -> bool:
         """可取消的 sleep，返回 False 表示被取消"""
+        if self._cancel_event.is_set():
+            return False
         try:
             await asyncio.wait_for(self._cancel_event.wait(), timeout=duration)
+            self.ros_node.stop_robot()  # 取消时立即停止
             return False  # 被取消
         except asyncio.TimeoutError:
             return True  # 正常完成
@@ -241,6 +251,7 @@ class PerformanceExecutor:
             method = getattr(self, f"_do_{action}", None)
             if method:
                 await method(full_params)
+                self.ros_node.stop_robot()  # 确保动作结束后停止
                 return {"success": True, "action": action, "name": action_def["name"]}
             else:
                 return {"success": False, "error": f"动作 {action} 未实现"}
@@ -251,16 +262,17 @@ class PerformanceExecutor:
             self._running = False
     
     async def _do_spin(self, params: dict):
-        """转圈"""
-        circles = params["circles"]
-        speed = params["speed"] / 100.0
-        direction = params["direction"]
+        """转圈 - 原地旋转指定圈数"""
+        circles = float(params.get("circles", 1.0))
+        speed = float(params.get("speed", 50)) / 100.0
+        direction = params.get("direction", "left")
         
-        # 2.5秒转一圈 (约 2.5 rad/s)
-        angular_speed = 2.5 * speed
+        # 角速度 1.5 rad/s 是一个合适的旋转速度
+        angular_speed = 1.5 * max(0.3, speed)  # 最低30%速度
         if direction == "right":
             angular_speed = -angular_speed
         
+        # 计算旋转时间: 一圈 = 2π rad
         duration = circles * (2 * math.pi / abs(angular_speed))
         
         self.ros_node.publish_twist(0, 0, angular_speed)
@@ -268,15 +280,16 @@ class PerformanceExecutor:
         self.ros_node.stop_robot()
     
     async def _do_shake(self, params: dict):
-        """摇头 (左右转)"""
-        times = params["times"]
-        speed = params["speed"] / 100.0
+        """摇头 - 左右快速转动"""
+        times = int(params.get("times", 3))
+        speed = float(params.get("speed", 60)) / 100.0
         
-        angular_speed = 3.0 * speed  # rad/s
-        shake_duration = 0.2 / speed
+        # 使用较大的角速度确保能动
+        angular_speed = 2.0 * max(0.4, speed)  # 最低40%速度
+        shake_duration = 0.3  # 每个方向0.3秒
         
-        for _ in range(times):
-            if self._cancel_event.is_set():
+        for i in range(times):
+            if self.is_cancelled():
                 break
             # 左转
             self.ros_node.publish_twist(0, 0, angular_speed)
@@ -290,22 +303,24 @@ class PerformanceExecutor:
             self.ros_node.publish_twist(0, 0, angular_speed)
             if not await self._sleep(shake_duration):
                 break
+            # 短暂停顿
             self.ros_node.stop_robot()
-            if not await self._sleep(0.1):
+            if not await self._sleep(0.15):
                 break
         
         self.ros_node.stop_robot()
     
     async def _do_nod(self, params: dict):
-        """点头 (前后动)"""
-        times = params["times"]
-        speed = params["speed"] / 100.0
+        """点头 - 前后移动（需要较大速度才能克服惯性）"""
+        times = int(params.get("times", 3))
+        speed = float(params.get("speed", 50)) / 100.0
         
-        linear_speed = 0.15 * speed  # m/s
-        nod_duration = 0.25 / speed
+        # 使用较大的线速度确保能动
+        linear_speed = 0.25 * max(0.5, speed)  # 最低50%速度，基础0.25m/s
+        nod_duration = 0.4  # 每个方向0.4秒
         
-        for _ in range(times):
-            if self._cancel_event.is_set():
+        for i in range(times):
+            if self.is_cancelled():
                 break
             # 前进
             self.ros_node.publish_twist(linear_speed, 0, 0)
@@ -313,28 +328,26 @@ class PerformanceExecutor:
                 break
             # 后退
             self.ros_node.publish_twist(-linear_speed, 0, 0)
-            if not await self._sleep(nod_duration * 2):
-                break
-            # 回正
-            self.ros_node.publish_twist(linear_speed, 0, 0)
             if not await self._sleep(nod_duration):
                 break
+            # 短暂停顿
             self.ros_node.stop_robot()
-            if not await self._sleep(0.1):
+            if not await self._sleep(0.2):
                 break
         
         self.ros_node.stop_robot()
     
     async def _do_wiggle(self, params: dict):
-        """扭动 (左右平移)"""
-        times = params["times"]
-        speed = params["speed"] / 100.0
+        """扭动 - 左右平移"""
+        times = int(params.get("times", 4))
+        speed = float(params.get("speed", 60)) / 100.0
         
-        linear_speed = 0.12 * speed  # m/s
-        wiggle_duration = 0.3 / speed
+        # 使用较大的线速度
+        linear_speed = 0.2 * max(0.5, speed)  # 最低50%速度
+        wiggle_duration = 0.35  # 每个方向0.35秒
         
-        for _ in range(times):
-            if self._cancel_event.is_set():
+        for i in range(times):
+            if self.is_cancelled():
                 break
             # 左平移
             self.ros_node.publish_twist(0, linear_speed, 0)
@@ -348,45 +361,46 @@ class PerformanceExecutor:
             self.ros_node.publish_twist(0, linear_speed, 0)
             if not await self._sleep(wiggle_duration):
                 break
+            # 短暂停顿
             self.ros_node.stop_robot()
-            if not await self._sleep(0.1):
+            if not await self._sleep(0.15):
                 break
         
         self.ros_node.stop_robot()
     
     async def _do_dance(self, params: dict):
-        """跳舞"""
-        duration = params["duration"]
-        style = params["style"]
+        """跳舞 - 组合动作序列（限制时长）"""
+        duration = min(float(params.get("duration", 5.0)), 10.0)  # 最长10秒
+        style = params.get("style", "happy")
         
         start_time = time.time()
         
         # 根据风格设置参数
         if style == "excited":
-            speed_mult = 1.3
-            pause_mult = 0.7
+            speed_mult = 1.2
+            move_duration = 0.4
         elif style == "calm":
-            speed_mult = 0.6
-            pause_mult = 1.5
+            speed_mult = 0.7
+            move_duration = 0.7
         else:  # happy
             speed_mult = 1.0
-            pause_mult = 1.0
+            move_duration = 0.5
         
-        # 舞蹈动作序列
+        # 舞蹈动作序列 (线速度x, 线速度y, 角速度z)
         moves = [
-            (0, 0, 2.0),    # 左转
-            (0, 0, -2.0),   # 右转
-            (0.1, 0, 0),    # 前
-            (-0.1, 0, 0),   # 后
-            (0, 0.1, 0),    # 左
-            (0, -0.1, 0),   # 右
-            (0.05, 0, 1.5), # 前+左转
-            (0.05, 0, -1.5),# 前+右转
+            (0, 0, 1.5),     # 左转
+            (0, 0, -1.5),    # 右转
+            (0.15, 0, 0),    # 前进
+            (-0.15, 0, 0),   # 后退
+            (0, 0.12, 0),    # 左平移
+            (0, -0.12, 0),   # 右平移
+            (0.1, 0, 1.0),   # 前进+左转
+            (0.1, 0, -1.0),  # 前进+右转
         ]
         
         move_idx = 0
         while time.time() - start_time < duration:
-            if self._cancel_event.is_set():
+            if self.is_cancelled():
                 break
             
             move = moves[move_idx % len(moves)]
@@ -396,7 +410,7 @@ class PerformanceExecutor:
                 move[2] * speed_mult
             )
             
-            if not await self._sleep(0.5 * pause_mult):
+            if not await self._sleep(move_duration):
                 break
             
             move_idx += 1
@@ -404,73 +418,113 @@ class PerformanceExecutor:
         self.ros_node.stop_robot()
     
     async def _do_figure8(self, params: dict):
-        """画8字"""
-        size = params["size"]
-        speed = params["speed"] / 100.0
+        """画8字 - 两个连续的圆弧"""
+        size = float(params.get("size", 1.0))
+        speed = float(params.get("speed", 40)) / 100.0
         
-        linear_speed = 0.1 * speed * size
-        angular_speed = 1.5 * speed
-        duration_per_circle = 3.0 / speed
+        linear_speed = 0.12 * max(0.4, speed) * size
+        angular_speed = 1.2 * max(0.4, speed)
+        duration_per_circle = 2.5  # 每个圆弧2.5秒
         
         # 第一个圈 (左转)
+        if self.is_cancelled():
+            return
         self.ros_node.publish_twist(linear_speed, 0, angular_speed)
         if not await self._sleep(duration_per_circle):
+            self.ros_node.stop_robot()
             return
         
         # 第二个圈 (右转)
+        if self.is_cancelled():
+            return
         self.ros_node.publish_twist(linear_speed, 0, -angular_speed)
         if not await self._sleep(duration_per_circle):
+            self.ros_node.stop_robot()
             return
         
         self.ros_node.stop_robot()
     
     async def _do_celebrate(self, params: dict):
-        """庆祝"""
-        intensity = params["intensity"] / 100.0
+        """庆祝 - 简化版本，确保能正常结束"""
+        intensity = float(params.get("intensity", 50)) / 100.0
+        intensity = max(0.4, intensity)  # 最低40%强度
         
-        # 鸣笛
+        # 1. 鸣笛
         self.ros_node.beep(freq=1500, duration=0.3)
         if not await self._sleep(0.4):
             return
         
-        # 转一圈
-        await self._do_spin({"circles": 1.0, "speed": 60 * intensity, "direction": "left"})
+        # 2. 快速转半圈
+        if self.is_cancelled():
+            return
+        angular_speed = 2.0 * intensity
+        self.ros_node.publish_twist(0, 0, angular_speed)
+        if not await self._sleep(1.5):  # 约半圈
+            self.ros_node.stop_robot()
+            return
+        self.ros_node.stop_robot()
         
-        # 再鸣笛两声
+        # 3. 鸣笛两声
+        if self.is_cancelled():
+            return
         self.ros_node.beep(freq=2000, duration=0.15)
-        if not await self._sleep(0.2):
+        if not await self._sleep(0.25):
             return
         self.ros_node.beep(freq=2500, duration=0.15)
-        if not await self._sleep(0.2):
+        if not await self._sleep(0.25):
             return
         
-        # 摇头
-        await self._do_shake({"times": 2, "speed": 70 * intensity})
+        # 4. 左右晃两下
+        if self.is_cancelled():
+            return
+        shake_speed = 1.8 * intensity
+        self.ros_node.publish_twist(0, 0, shake_speed)
+        if not await self._sleep(0.3):
+            self.ros_node.stop_robot()
+            return
+        self.ros_node.publish_twist(0, 0, -shake_speed)
+        if not await self._sleep(0.3):
+            self.ros_node.stop_robot()
+            return
+        
+        self.ros_node.stop_robot()
     
     async def _do_greet(self, params: dict):
-        """打招呼"""
+        """打招呼 - 前进后退+鸣笛"""
         # 鸣笛
         self.ros_node.beep(freq=1000, duration=0.2)
         if not await self._sleep(0.3):
             return
         
         # 前进一点
-        self.ros_node.publish_twist(0.08, 0, 0)
-        if not await self._sleep(0.4):
+        if self.is_cancelled():
+            return
+        self.ros_node.publish_twist(0.12, 0, 0)  # 稍快的速度
+        if not await self._sleep(0.5):
+            self.ros_node.stop_robot()
             return
         
         # 后退回来
-        self.ros_node.publish_twist(-0.08, 0, 0)
-        if not await self._sleep(0.4):
+        if self.is_cancelled():
+            return
+        self.ros_node.publish_twist(-0.12, 0, 0)
+        if not await self._sleep(0.5):
+            self.ros_node.stop_robot()
             return
         
         self.ros_node.stop_robot()
         
         # 再鸣笛
+        if self.is_cancelled():
+            return
         self.ros_node.beep(freq=1200, duration=0.15)
         if not await self._sleep(0.2):
             return
         self.ros_node.beep(freq=1500, duration=0.15)
+        if not await self._sleep(0.2):
+            return
+        
+        self.ros_node.stop_robot()
 
 class WebApiServer:
     def __init__(self, ros_node):
