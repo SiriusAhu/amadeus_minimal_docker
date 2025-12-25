@@ -482,17 +482,42 @@ class WebApiServer:
                         # 执行表演动作
                         perform_action = cmd.get("perform_action", "")
                         params = cmd.get("params", {})
+                        timestamp = cmd.get("timestamp", 0)
                         
-                        # 异步执行表演
-                        result = await self.performance_executor.execute(perform_action, params)
-                        await websocket.send_json({
-                            "action": "perform_result",
-                            "perform_action": result.get("action", perform_action),
-                            "success": result.get("success", False),
-                            "name": result.get("name", ""),
-                            "error": result.get("error", ""),
-                            "timestamp": cmd.get("timestamp", 0)
-                        })
+                        # 检查是否可以执行
+                        if self.performance_executor._running:
+                            await websocket.send_json({
+                                "action": "perform_result",
+                                "perform_action": perform_action,
+                                "success": False,
+                                "error": "另一个表演正在进行中",
+                                "timestamp": timestamp
+                            })
+                        else:
+                            # 立即回复已开始
+                            await websocket.send_json({
+                                "action": "perform_started",
+                                "perform_action": perform_action,
+                                "timestamp": timestamp
+                            })
+                            
+                            # 在后台执行表演，完成后发送结果
+                            async def run_perform():
+                                result = await self.performance_executor.execute(perform_action, params)
+                                try:
+                                    await websocket.send_json({
+                                        "action": "perform_result",
+                                        "perform_action": result.get("action", perform_action),
+                                        "success": result.get("success", False),
+                                        "name": result.get("name", ""),
+                                        "error": result.get("error", ""),
+                                        "cancelled": result.get("cancelled", False),
+                                        "timestamp": timestamp
+                                    })
+                                except Exception:
+                                    pass  # WebSocket 可能已关闭
+                            
+                            asyncio.create_task(run_perform())
                     
                     elif action == "cancel_perform":
                         # 取消表演
