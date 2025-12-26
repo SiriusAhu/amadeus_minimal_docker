@@ -5,6 +5,18 @@ from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import MotorSpeedControl, MotorsSpeedControl  
 
 class MecanumChassis(Node):
+    # ========================================================================
+    # 角速度缩放因子配置
+    # ------------------------------------------------------------------------
+    # 原始值: 1.0 (无缩放)
+    # 当前值: 0.35
+    # 修改原因: 麦克纳姆轮四轮同时发力进行纯旋转时，实际角速度过快，导致：
+    #   1. 摄像头画面模糊，影响 YOLO 检测和人体跟随
+    #   2. 用户手动控制时旋转过于灵敏，难以精确操控
+    # 此缩放因子将输入的角速度缩放后再用于电机计算，降低实际旋转速度
+    # ========================================================================
+    ANGULAR_SPEED_SCALE = 0.35  # 原始值: 1.0
+    
     def __init__(self, wheelbase=0.1368, track_width=0.1410, wheel_diameter=0.065, max_linear_speed=1.0, max_angular_speed=1.0):
         super().__init__('mecanum_chassis')
 
@@ -58,7 +70,9 @@ class MecanumChassis(Node):
         """
         linear_x = msg.linear.x  # 线性速度（前后）
         linear_y = msg.linear.y  # 线性速度（左右）
-        angular_z = msg.angular.z  # 角速度（绕z轴）
+        # 应用角速度缩放因子，降低实际旋转速度
+        # 原始代码: angular_z = msg.angular.z
+        angular_z = msg.angular.z * self.ANGULAR_SPEED_SCALE
 
         # 计算四个电机的速度
         motor_msg = self.set_velocity(linear_x, linear_y, angular_z)
