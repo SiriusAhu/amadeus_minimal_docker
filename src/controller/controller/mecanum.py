@@ -5,7 +5,7 @@ from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import MotorSpeedControl, MotorsSpeedControl  
 
 class MecanumChassis(Node):
-    def __init__(self, wheelbase=0.1368, track_width=0.1410, wheel_diameter=0.065, max_linear_speed=1.0, max_angular_speed=1.0, angular_scale=0.3):
+    def __init__(self, wheelbase=0.1368, track_width=0.1410, wheel_diameter=0.065, max_linear_speed=1.0, max_angular_speed=1.0):
         super().__init__('mecanum_chassis')
 
         # 麦克纳姆轮的物理参数
@@ -14,9 +14,6 @@ class MecanumChassis(Node):
         self.wheel_diameter = wheel_diameter
         self.max_linear_speed = max_linear_speed  # 最大线性速度 (m/s)
         self.max_angular_speed = max_angular_speed  # 最大角速度 (rad/s)
-        # 角速度缩放因子：降低旋转速度以获得更稳定的控制
-        # 0.3 表示实际旋转速度约为请求的 30%
-        self.angular_scale = angular_scale
 
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
 
@@ -61,8 +58,7 @@ class MecanumChassis(Node):
         """
         linear_x = msg.linear.x  # 线性速度（前后）
         linear_y = msg.linear.y  # 线性速度（左右）
-        # 角速度缩放：降低旋转速度以获得更稳定的控制和清晰的摄像头画面
-        angular_z = msg.angular.z * self.angular_scale
+        angular_z = msg.angular.z  # 角速度（绕z轴）
 
         # 计算四个电机的速度
         motor_msg = self.set_velocity(linear_x, linear_y, angular_z)
