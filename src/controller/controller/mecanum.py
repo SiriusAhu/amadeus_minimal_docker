@@ -1,24 +1,42 @@
+import os
 import math
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from ros_robot_controller_msgs.msg import MotorSpeedControl, MotorsSpeedControl  
 
+
+# ========================================================================
+# 角速度缩放因子配置
+# ------------------------------------------------------------------------
+# 原始值: 1.0 (无缩放)
+# 默认值: 0.5 (可通过环境变量 ANGULAR_SPEED_SCALE 调整)
+# 修改原因: 麦克纳姆轮四轮同时发力进行纯旋转时，实际角速度过快，导致：
+#   1. 摄像头画面模糊，影响 YOLO 检测和人体跟随
+#   2. 用户手动控制时旋转过于灵敏，难以精确操控
+# 此缩放因子将输入的角速度缩放后再用于电机计算，降低实际旋转速度
+#
+# 使用方法：设置环境变量来调整，例如：
+#   export ANGULAR_SPEED_SCALE=0.8
+# ========================================================================
+def get_angular_speed_scale() -> float:
+    """从环境变量读取角速度缩放因子"""
+    try:
+        scale = float(os.environ.get('ANGULAR_SPEED_SCALE', '0.5'))
+        # 限制范围在 0.1 到 2.0 之间
+        return max(0.1, min(2.0, scale))
+    except ValueError:
+        return 0.5
+
+
 class MecanumChassis(Node):
-    # ========================================================================
-    # 角速度缩放因子配置
-    # ------------------------------------------------------------------------
-    # 原始值: 1.0 (无缩放)
-    # 当前值: 0.35
-    # 修改原因: 麦克纳姆轮四轮同时发力进行纯旋转时，实际角速度过快，导致：
-    #   1. 摄像头画面模糊，影响 YOLO 检测和人体跟随
-    #   2. 用户手动控制时旋转过于灵敏，难以精确操控
-    # 此缩放因子将输入的角速度缩放后再用于电机计算，降低实际旋转速度
-    # ========================================================================
-    ANGULAR_SPEED_SCALE = 0.35  # 原始值: 1.0
+    ANGULAR_SPEED_SCALE = get_angular_speed_scale()  # 从环境变量读取，默认 0.5
     
     def __init__(self, wheelbase=0.1368, track_width=0.1410, wheel_diameter=0.065, max_linear_speed=1.0, max_angular_speed=1.0):
         super().__init__('mecanum_chassis')
+        
+        # 启动时打印当前角速度缩放因子
+        self.get_logger().info(f'角速度缩放因子: {self.ANGULAR_SPEED_SCALE}')
 
         # 麦克纳姆轮的物理参数
         self.wheelbase = wheelbase
