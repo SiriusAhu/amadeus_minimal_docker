@@ -32,7 +32,10 @@ def get_angular_speed_scale() -> float:
 class MecanumChassis(Node):
     ANGULAR_SPEED_SCALE = get_angular_speed_scale()  # 从环境变量读取，默认 0.5
     
-    def __init__(self, wheelbase=0.1368, track_width=0.1410, wheel_diameter=0.065, max_linear_speed=1.0, max_angular_speed=1.0):
+    # 注意：max_linear_speed 影响电机速度的归一化
+    # 原值 1.0 导致旋转时电机速度只有约 20%（因为运动学公式输出值很小）
+    # 改为 0.2 使得旋转可以达到接近 100% 的电机速度
+    def __init__(self, wheelbase=0.1368, track_width=0.1410, wheel_diameter=0.065, max_linear_speed=0.2, max_angular_speed=1.0):
         super().__init__('mecanum_chassis')
         
         # 启动时打印当前角速度缩放因子
