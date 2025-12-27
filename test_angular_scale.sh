@@ -19,23 +19,38 @@ echo "========================================="
 echo "设置角速度缩放因子: $SCALE"
 echo "========================================="
 
-# 停止现有容器
-./stop.sh
+# 停止并删除所有相关容器
+echo "停止现有容器..."
+docker stop amadeus_control ros2-minimal 2>/dev/null
+docker rm amadeus_control ros2-minimal 2>/dev/null
 
 # 用新的环境变量启动容器
+echo "启动新容器..."
 docker run -d --rm \
-    --name ros2-minimal \
+    --name amadeus_control \
     --network host \
     --privileged \
     -v /dev:/dev \
     -e ANGULAR_SPEED_SCALE=$SCALE \
     ros2-minimal
 
-echo ""
-echo "容器已启动，角速度缩放因子: $SCALE"
-echo "请测试旋转效果，如需调整请运行:"
-echo "  ./test_angular_scale.sh <新值>"
-echo ""
-echo "推荐测试值: 0.3, 0.5, 0.7, 0.8, 1.0"
-echo "========================================="
+sleep 2
 
+# 检查容器是否启动成功
+if docker ps | grep -q amadeus_control; then
+    echo ""
+    echo "✓ 容器已启动，角速度缩放因子: $SCALE"
+    echo ""
+    echo "查看日志确认缩放因子:"
+    docker logs amadeus_control 2>&1 | grep -i "角速度" || echo "(等待节点启动...)"
+    echo ""
+    echo "请测试旋转效果，如需调整请运行:"
+    echo "  ./test_angular_scale.sh <新值>"
+    echo ""
+    echo "推荐测试值: 0.5, 0.7, 0.8, 1.0, 1.2"
+    echo "========================================="
+else
+    echo ""
+    echo "✗ 容器启动失败！"
+    docker logs amadeus_control 2>&1 | tail -20
+fi
