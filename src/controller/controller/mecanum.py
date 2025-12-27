@@ -10,7 +10,7 @@ from ros_robot_controller_msgs.msg import MotorSpeedControl, MotorsSpeedControl
 # 角速度缩放因子配置
 # ------------------------------------------------------------------------
 # 原始值: 1.0 (无缩放)
-# 默认值: 0.5 (可通过环境变量 ANGULAR_SPEED_SCALE 调整)
+# 默认值: 1.0 (可通过环境变量 ANGULAR_SPEED_SCALE 调整)
 # 修改原因: 麦克纳姆轮四轮同时发力进行纯旋转时，实际角速度过快，导致：
 #   1. 摄像头画面模糊，影响 YOLO 检测和人体跟随
 #   2. 用户手动控制时旋转过于灵敏，难以精确操控
@@ -22,11 +22,11 @@ from ros_robot_controller_msgs.msg import MotorSpeedControl, MotorsSpeedControl
 def get_angular_speed_scale() -> float:
     """从环境变量读取角速度缩放因子"""
     try:
-        scale = float(os.environ.get('ANGULAR_SPEED_SCALE', '0.5'))
+        scale = float(os.environ.get('ANGULAR_SPEED_SCALE', '1.0'))
         # 限制范围在 0.1 到 2.0 之间
         return max(0.1, min(2.0, scale))
     except ValueError:
-        return 0.5
+        return 1.0
 
 
 class MecanumChassis(Node):

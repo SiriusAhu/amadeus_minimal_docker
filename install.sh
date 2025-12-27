@@ -119,7 +119,8 @@ EOF
 build_image() {
     info "构建 Docker 镜像 (这可能需要 10-30 分钟)..."
     
-    docker build -t amadeus_control:latest .
+    # 使用与 start.sh 一致的镜像名称
+    docker build -t amadeus:minimal .
     
     success "Docker 镜像构建完成"
 }
@@ -128,6 +129,10 @@ build_image() {
 setup_docker_service() {
     info "配置 Docker 开机自启服务..."
     
+    # 使用与 start.sh 一致的配置：
+    # - 镜像名称: amadeus:minimal
+    # - 端口映射: 9000:8000 (App 连接 9000 端口)
+    # - 设备映射: /dev/ttyAMA0:/dev/rrc
     cat > /etc/systemd/system/amadeus-docker.service << EOF
 [Unit]
 Description=Amadeus Docker Container - 车辆控制容器
@@ -143,10 +148,10 @@ ExecStartPre=-/usr/bin/docker stop amadeus_control
 ExecStartPre=-/usr/bin/docker rm amadeus_control
 ExecStart=/usr/bin/docker run --rm \\
     --name amadeus_control \\
-    --privileged \\
-    --network host \\
-    -v /dev:/dev \\
-    amadeus_control:latest
+    -p 9000:8000 \\
+    --device=/dev/ttyAMA0:/dev/rrc \\
+    --privileged=true \\
+    amadeus:minimal
 ExecStop=/usr/bin/docker stop amadeus_control
 
 [Install]
@@ -237,11 +242,11 @@ else
     echo "❌ Docker 容器未运行"
 fi
 
-# 检查 WebSocket API
-if curl -s --max-time 2 http://localhost:9000/health 2>/dev/null | grep -q "ok"; then
+# 检查 WebSocket API (端口 9000 映射到容器内 8000)
+if curl -s --max-time 2 http://localhost:9000/ 2>/dev/null; then
     echo "✅ WebSocket API 正常 (端口 9000)"
 else
-    echo "⚠️  WebSocket API 不可用"
+    echo "⚠️  WebSocket API 不可用 (端口 9000)"
 fi
 
 # 检查摄像头

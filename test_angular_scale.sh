@@ -28,11 +28,11 @@ docker rm amadeus_control ros2-minimal 2>/dev/null
 echo "启动新容器..."
 docker run -d --rm \
     --name amadeus_control \
-    --network host \
+    -p 9000:8000 \
     --privileged \
     -v /dev:/dev \
     -e ANGULAR_SPEED_SCALE=$SCALE \
-    ros2-minimal
+    amadeus:minimal
 
 sleep 2
 
