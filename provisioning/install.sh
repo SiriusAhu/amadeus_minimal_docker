@@ -70,15 +70,28 @@ nmcli connection reload || true
 cat > /usr/local/bin/amadeus-wifi-manager.sh << 'SCRIPT'
 #!/bin/bash
 # Amadeus WiFi 管理脚本
+# 功能：检查 WiFi 连接状态，如果未连接则启动 AP 模式
 
 check_wifi_connection() {
-    nmcli -t -f ACTIVE,SSID dev wifi 2>/dev/null | grep -q '^yes:'
+    # 检查是否有活动的 WiFi 连接
+    # 排除 AP 模式本身的连接
+    nmcli -t -f ACTIVE,SSID,TYPE con show --active 2>/dev/null | grep -E 'wifi' | grep -v "Amadeus-AP" | grep -q '^yes'
     return $?
 }
 
 start_ap_mode() {
     echo "[Amadeus] 未检测到 WiFi 连接，启动 AP 模式..."
+    # 停止可能导致冲突的 WiFi 连接
+    nmcli -t -f NAME,TYPE con show --active 2>/dev/null | grep 'wireless' | while read line; do
+        name=$(echo "$line" | cut -d: -f1)
+        if [ "$name" != "Amadeus-AP" ]; then
+            echo "[Amadeus] 断开 WiFi 连接: $name"
+            nmcli con down "$name" 2>/dev/null || true
+        fi
+    done
+    # 启动 AP 模式
     nmcli con up Amadeus-AP 2>/dev/null || true
+    # 启动配网服务
     systemctl start amadeus-provisioning.service 2>/dev/null || true
     echo "[Amadeus] AP 模式已启动"
 }
@@ -100,6 +113,66 @@ SCRIPT
 
 chmod +x /usr/local/bin/amadeus-wifi-manager.sh
 
+# 创建持续监控脚本（用于在 WiFi 断开时自动启动 AP）
+cat > /usr/local/bin/amadeus-wifi-monitor.sh << 'SCRIPT'
+#!/bin/bash
+# Amadeus WiFi 持续监控脚本
+# 功能：持续监控 WiFi 连接状态，断开时自动启动 AP
+
+LOG_FILE="/var/log/amadeus-wifi-monitor.log"
+INTERVAL=10  # 检查间隔（秒）
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+check_wifi_connection() {
+    nmcli -t -f ACTIVE,SSID,TYPE con show --active 2>/dev/null | grep -E 'wifi' | grep -v "Amadeus-AP" | grep -q '^yes'
+    return $?
+}
+
+start_ap_mode() {
+    log "WiFi 已断开，启动 AP 模式..."
+    # 停止可能导致冲突的 WiFi 连接
+    nmcli -t -f NAME,TYPE con show --active 2>/dev/null | grep 'wireless' | while read line; do
+        name=$(echo "$line" | cut -d: -f1)
+        if [ "$name" != "Amadeus-AP" ]; then
+            nmcli con down "$name" 2>/dev/null || true
+        fi
+    done
+    # 启动 AP 模式
+    nmcli con up Amadeus-AP 2>/dev/null || true
+    systemctl start amadeus-provisioning.service 2>/dev/null || true
+    log "AP 模式已启动"
+}
+
+stop_ap_mode() {
+    log "WiFi 已连接，停止 AP 模式..."
+    systemctl stop amadeus-provisioning.service 2>/dev/null || true
+    nmcli con down Amadeus-AP 2>/dev/null || true
+}
+
+log "WiFi 监控服务启动"
+
+while true; do
+    if check_wifi_connection; then
+        # WiFi 已连接，检查 AP 是否在运行，如果在则停止
+        if nmcli con show --active | grep -q "Amadeus-AP"; then
+            stop_ap_mode
+            log "WiFi 已恢复，AP 已停止"
+        fi
+    else
+        # WiFi 未连接，检查 AP 是否在运行，如果不在则启动
+        if ! nmcli con show --active | grep -q "Amadeus-AP"; then
+            start_ap_mode
+        fi
+    fi
+    sleep $INTERVAL
+done
+SCRIPT
+
+chmod +x /usr/local/bin/amadeus-wifi-monitor.sh
+
 # 创建 systemd 服务
 echo "[5/5] 创建 systemd 服务..."
 
@@ -120,9 +193,10 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
+# 启动时检查 WiFi 连接
 cat > /etc/systemd/system/amadeus-wifi-check.service << EOF
 [Unit]
-Description=Amadeus WiFi Connection Check
+Description=Amadeus WiFi Connection Check (One-time)
 After=network-online.target
 Wants=network-online.target
 
@@ -135,11 +209,29 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF
 
+# 持续监控 WiFi 连接状态（断线时自动启动 AP）
+cat > /etc/systemd/system/amadeus-wifi-monitor.service << EOF
+[Unit]
+Description=Amadeus WiFi Connection Monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/amadeus-wifi-monitor.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 # 重新加载 systemd
 systemctl daemon-reload
 
-# 启用 WiFi 检查服务
+# 启用 WiFi 检查服务和持续监控服务
 systemctl enable amadeus-wifi-check.service
+systemctl enable amadeus-wifi-monitor.service
 
 echo ""
 echo "======================================"
@@ -150,6 +242,10 @@ echo "AP SSID: ${AP_SSID}"
 echo "AP 密码: amadeus"
 echo "配网地址: http://192.168.4.1"
 echo ""
+echo "功能说明:"
+echo "  - 启动时检查 WiFi：如果未连接自动启动 AP"
+echo "  - 持续监控 WiFi：断线时自动重新启动 AP"
+echo ""
 echo "使用方法:"
 echo "  1. 启动 AP 模式:"
 echo "     sudo /usr/local/bin/amadeus-wifi-manager.sh"
@@ -157,7 +253,10 @@ echo ""
 echo "  2. 手动启动配网服务:"
 echo "     sudo systemctl start amadeus-provisioning"
 echo ""
-echo "  3. 查看日志:"
+echo "  3. 查看 WiFi 监控日志:"
+echo "     tail -f /var/log/amadeus-wifi-monitor.log"
+echo ""
+echo "  4. 查看配网服务日志:"
 echo "     journalctl -u amadeus-provisioning -f"
 echo ""
 
