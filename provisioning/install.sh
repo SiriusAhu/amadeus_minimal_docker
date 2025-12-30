@@ -73,22 +73,15 @@ cat > /usr/local/bin/amadeus-wifi-manager.sh << 'SCRIPT'
 # 功能：检查 WiFi 连接状态，如果未连接则启动 AP 模式
 
 check_wifi_connection() {
-    # 检查是否有活动的 WiFi 连接
-    # 排除 AP 模式本身的连接
-    nmcli -t -f ACTIVE,SSID,TYPE con show --active 2>/dev/null | grep -E 'wifi' | grep -v "Amadeus-AP" | grep -q '^yes'
+    # 使用 nmcli dev wifi 检查是否有活动的 WiFi 连接
+    # 输出格式: "yes:SSID" 或 "no:SSID"
+    # 排除 AP 模式本身
+    nmcli -t -f ACTIVE,SSID dev wifi 2>/dev/null | grep -v "Amadeus-" | grep -q "^yes:"
     return $?
 }
 
 start_ap_mode() {
     echo "[Amadeus] 未检测到 WiFi 连接，启动 AP 模式..."
-    # 停止可能导致冲突的 WiFi 连接
-    nmcli -t -f NAME,TYPE con show --active 2>/dev/null | grep 'wireless' | while read line; do
-        name=$(echo "$line" | cut -d: -f1)
-        if [ "$name" != "Amadeus-AP" ]; then
-            echo "[Amadeus] 断开 WiFi 连接: $name"
-            nmcli con down "$name" 2>/dev/null || true
-        fi
-    done
     # 启动 AP 模式
     nmcli con up Amadeus-AP 2>/dev/null || true
     # 启动配网服务
@@ -127,19 +120,15 @@ log() {
 }
 
 check_wifi_connection() {
-    nmcli -t -f ACTIVE,SSID,TYPE con show --active 2>/dev/null | grep -E 'wifi' | grep -v "Amadeus-AP" | grep -q '^yes'
+    # 使用 nmcli dev wifi 检查是否有活动的 WiFi 连接
+    # 输出格式: "yes:SSID" 或 "no:SSID"
+    # 排除 AP 模式本身
+    nmcli -t -f ACTIVE,SSID dev wifi 2>/dev/null | grep -v "Amadeus-" | grep -q "^yes:"
     return $?
 }
 
 start_ap_mode() {
     log "WiFi 已断开，启动 AP 模式..."
-    # 停止可能导致冲突的 WiFi 连接
-    nmcli -t -f NAME,TYPE con show --active 2>/dev/null | grep 'wireless' | while read line; do
-        name=$(echo "$line" | cut -d: -f1)
-        if [ "$name" != "Amadeus-AP" ]; then
-            nmcli con down "$name" 2>/dev/null || true
-        fi
-    done
     # 启动 AP 模式
     nmcli con up Amadeus-AP 2>/dev/null || true
     systemctl start amadeus-provisioning.service 2>/dev/null || true
@@ -157,13 +146,13 @@ log "WiFi 监控服务启动"
 while true; do
     if check_wifi_connection; then
         # WiFi 已连接，检查 AP 是否在运行，如果在则停止
-        if nmcli con show --active | grep -q "Amadeus-AP"; then
+        if nmcli con show --active 2>/dev/null | grep -q "Amadeus-AP"; then
             stop_ap_mode
             log "WiFi 已恢复，AP 已停止"
         fi
     else
         # WiFi 未连接，检查 AP 是否在运行，如果不在则启动
-        if ! nmcli con show --active | grep -q "Amadeus-AP"; then
+        if ! nmcli con show --active 2>/dev/null | grep -q "Amadeus-AP"; then
             start_ap_mode
         fi
     fi
